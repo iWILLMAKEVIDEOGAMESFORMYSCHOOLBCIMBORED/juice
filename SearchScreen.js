@@ -1,88 +1,95 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, Dimensions } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useMusic } from '../context/MusicContext';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { JUICE_WRLD_SONGS } from '../data/songs';
+import { fetchDriveSongs, GOOGLE_API_KEY } from '../services/GoogleDriveService';
 
-const { width } = Dimensions.get('window');
+const MusicContext = createContext(null);
 
-export default function MiniPlayer() {
-  const { currentSong, isPlaying, togglePlay, playNext, setPlayerExpanded, showPlayer } = useMusic();
-  const insets = useSafeAreaInsets();
+export const MusicProvider = ({ children }) => {
+  const [allSongs, setAllSongs] = useState(JUICE_WRLD_SONGS);
+  const [driveLoaded, setDriveLoaded] = useState(false);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState(null);
+  const [driveSongCount, setDriveSongCount] = useState(0);
 
-  if (!currentSong || !showPlayer) return null;
+  const [currentSong, setCurrentSong] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [queue, setQueue] = useState([]);
+  const [queueIndex, setQueueIndex] = useState(0);
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [playerExpanded, setPlayerExpanded] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [liked, setLiked] = useState([]);
+  const [recentlyPlayed, setRecentlyPlayed] = useState([]);
+  const soundRef = useRef(null);
+
+  useEffect(() => { loadDriveSongs(); }, []);
+
+  const loadDriveSongs = async () => {
+    if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_DRIVE_API_KEY_HERE') return;
+    setDriveLoading(true);
+    setDriveError(null);
+    try {
+      const driveSongs = await fetchDriveSongs();
+      if (driveSongs.length > 0) {
+        const releasedHardcoded = JUICE_WRLD_SONGS.filter(s => s.type === 'released');
+        setAllSongs([...releasedHardcoded, ...driveSongs]);
+        setDriveSongCount(driveSongs.length);
+        setDriveLoaded(true);
+      }
+    } catch (err) {
+      setDriveError(err.message);
+    } finally {
+      setDriveLoading(false);
+    }
+  };
+
+  const playSong = useCallback((song, songList = null) => {
+    const list = songList || allSongs;
+    const index = list.findIndex(s => s.id === song.id);
+    setQueue(list);
+    setQueueIndex(index >= 0 ? index : 0);
+    setCurrentSong(song);
+    setIsPlaying(true);
+    setShowPlayer(true);
+    setProgress(0);
+    setRecentlyPlayed(prev => [song, ...prev.filter(s => s.id !== song.id)].slice(0, 20));
+  }, [allSongs]);
+
+  const playNext = useCallback(() => {
+    if (!queue.length) return;
+    const i = (queueIndex + 1) % queue.length;
+    setQueueIndex(i); setCurrentSong(queue[i]); setIsPlaying(true); setProgress(0);
+  }, [queue, queueIndex]);
+
+  const playPrev = useCallback(() => {
+    if (!queue.length) return;
+    const i = queueIndex === 0 ? queue.length - 1 : queueIndex - 1;
+    setQueueIndex(i); setCurrentSong(queue[i]); setIsPlaying(true); setProgress(0);
+  }, [queue, queueIndex]);
+
+  const togglePlay = useCallback(() => setIsPlaying(p => !p), []);
+  const toggleLike = useCallback((id) => setLiked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]), []);
+  const isLiked = useCallback((id) => liked.includes(id), [liked]);
 
   return (
-    <TouchableOpacity
-      style={[styles.container, { bottom: 54 + insets.bottom }]}
-      onPress={() => setPlayerExpanded(true)}
-      activeOpacity={0.95}
-    >
-      <BlurView intensity={80} tint="dark" style={styles.blur}>
-        <LinearGradient
-          colors={['rgba(155,89,182,0.15)', 'rgba(10,10,15,0.9)']}
-          style={styles.gradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-        >
-          {/* Progress bar at top */}
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: '35%' }]} />
-          </View>
-
-          <View style={styles.content}>
-            <Image source={{ uri: currentSong.albumArt }} style={styles.art} />
-            <View style={styles.info}>
-              <Text style={styles.title} numberOfLines={1}>{currentSong.title}</Text>
-              <Text style={styles.meta}>Juice WRLD • {currentSong.year}</Text>
-            </View>
-            <View style={styles.controls}>
-              <TouchableOpacity onPress={togglePlay} style={styles.btn}>
-                <Ionicons
-                  name={isPlaying ? 'pause' : 'play'}
-                  size={22}
-                  color="#fff"
-                />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={playNext} style={styles.btn}>
-                <Ionicons name="play-skip-forward" size={22} color="#fff" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </LinearGradient>
-      </BlurView>
-    </TouchableOpacity>
+    <MusicContext.Provider value={{
+      allSongs,
+      releasedSongs: allSongs.filter(s => s.type === 'released'),
+      unreleasedSongs: allSongs.filter(s => s.type === 'unreleased'),
+      driveLoaded, driveLoading, driveError, driveSongCount,
+      reloadDrive: loadDriveSongs,
+      currentSong, isPlaying, queue, showPlayer, playerExpanded,
+      progress, liked, recentlyPlayed, soundRef,
+      playSong, playNext, playPrev, togglePlay, toggleLike, isLiked,
+      setShowPlayer, setPlayerExpanded, setProgress, setIsPlaying,
+    }}>
+      {children}
+    </MusicContext.Provider>
   );
-}
+};
 
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#9B59B6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 10,
-    zIndex: 999,
-  },
-  blur: { overflow: 'hidden', borderRadius: 16 },
-  gradient: { borderRadius: 16, borderWidth: 1, borderColor: 'rgba(155,89,182,0.3)' },
-  progressBar: { height: 2, backgroundColor: 'rgba(255,255,255,0.1)' },
-  progressFill: { height: '100%', backgroundColor: '#9B59B6' },
-  content: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 8, paddingHorizontal: 10, gap: 10,
-  },
-  art: { width: 42, height: 42, borderRadius: 8 },
-  info: { flex: 1 },
-  title: { color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 2 },
-  meta: { color: '#aaa', fontSize: 11 },
-  controls: { flexDirection: 'row', gap: 4 },
-  btn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: 'rgba(155,89,182,0.3)' },
-});
+export const useMusic = () => {
+  const ctx = useContext(MusicContext);
+  if (!ctx) throw new Error('useMusic must be used within MusicProvider');
+  return ctx;
+};
