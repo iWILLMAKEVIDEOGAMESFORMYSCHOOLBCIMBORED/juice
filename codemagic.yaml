@@ -1,0 +1,24 @@
+workflows:
+  ios-build:
+    name: Juiceify iOS Build
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      node: 20.11.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        EXPO_TOKEN: $EXPO_TOKEN
+    scripts:
+      - name: Install CLI tools
+        script: |
+          npm install -g expo-cli eas-cli
+      - name: Install dependencies
+        script: |
+          cd $CM_BUILD_DIR && npm install
+      - name: Build iOS IPA
+        script: |
+          cd $CM_BUILD_DIR
+          eas build --platform ios --profile production --non-interactive --local --output $CM_EXPORT_DIR/Juiceify.ipa
+    artifacts:
+      - $CM_EXPORT_DIR/Juiceify.ipa
